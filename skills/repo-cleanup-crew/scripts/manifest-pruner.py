@@ -129,10 +129,9 @@ def get_rule_groups(ocr_cmd, files):
             continue
 
         if collecting:
-            if re.match(r"-\s+(.+)", line):
-                path = re.match(r"-\s+(.+)", line).group(1).strip()
-                # Strip backticks if present
-                path = path.strip("`")
+            applies_match = re.match(r"-\s+(.+)", line)
+            if applies_match:
+                path = applies_match.group(1).strip().strip("`")
                 current_files.append(norm(path))
             else:
                 if current_group and current_files:
@@ -149,7 +148,6 @@ def get_rule_groups(ocr_cmd, files):
 
 
 def build_manifest(summaries, rule_groups):
-    # Sort by max ccn, then total nloc
     ranked = sorted(summaries, key=lambda s: (-s["max_ccn"], -s["total_nloc"]))
     manifest = []
 

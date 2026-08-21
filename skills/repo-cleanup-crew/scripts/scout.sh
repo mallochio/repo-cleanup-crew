@@ -2,8 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CREW_DIR="$(dirname "$SCRIPT_DIR")"
-OUTPUT_DIR="$CREW_DIR/output"
+REPO="${1:-$(pwd)}"
+REPO_NAME="$(basename "$REPO")"
+OUT_DIR="/tmp/repo-cleanup-crew/$REPO_NAME"
+
+cd "$REPO"
 
 run_lizard() {
   if command -v lizard >/dev/null 2>&1; then
@@ -22,27 +25,38 @@ run_lizard() {
   fi
 }
 
-mkdir -p "$OUTPUT_DIR"
-
 if command -v ocr >/dev/null 2>&1; then
   OCR=("ocr")
 else
   OCR=("npx" "-y" "@alibaba-group/open-code-review")
 fi
 
-# 1. Run lizard on the whole repo and capture CSV
+mkdir -p "$OUT_DIR"
+
+# 1. Run lizard on the repo and capture CSV outside the repo
 run_lizard \
   --csv \
-  --output_file "$OUTPUT_DIR/lizard.csv" \
+  --output_file "$OUT_DIR/lizard.csv" \
+  --exclude "./.agents/*" \
+  --exclude "./.cache/*" \
+  --exclude "./coverage/*" \
+  --exclude "./dist/*" \
   --exclude "./tools/repo-cleanup-crew/*" \
   --exclude "./lizard.csv" \
   --exclude "./node_modules/*" \
   .
 
-# 2. Produce the ranked manifest
+# 2. Produce the ranked manifest in /tmp
 python3 "$SCRIPT_DIR/manifest-pruner.py" \
-  --lizard "$OUTPUT_DIR/lizard.csv" \
-  --output "$OUTPUT_DIR/manifest.json" \
+  --lizard "$OUT_DIR/lizard.csv" \
+  --output "$OUT_DIR/manifest.json" \
   --ocr-cmd "${OCR[*]}"
 
-echo "Manifest written to $OUTPUT_DIR/manifest.json"
+# 3. Present a neat analysis
+python3 "$SCRIPT_DIR/present.py" \
+  --manifest "$OUT_DIR/manifest.json" \
+  --output "$OUT_DIR/analysis.md"
+
+echo "---"
+echo "Manifest: $OUT_DIR/manifest.json"
+echo "Analysis: $OUT_DIR/analysis.md"

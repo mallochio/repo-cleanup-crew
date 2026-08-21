@@ -2,44 +2,48 @@
 
 [![skills.sh](https://skills.sh/b/mallochio/repo-cleanup-crew)](https://skills.sh/mallochio/repo-cleanup-crew)
 
-An agent skill that finds the highest-value cleanups in a repo, then performs them one at a time while keeping the context window small. It uses [lizard](https://github.com/terryyin/lizard) for cyclomatic-complexity measurement and [Open Code Review](https://github.com/alibaba/open-code-review) (`ocr`) for deterministic file selection and rule resolution.
+An agent skill that finds the highest-value cleanups in a repo and presents them to the user. It only edits files after the user approves which items to clean. All analysis output goes to `/tmp/repo-cleanup-crew/`, so nothing is written into the target repository.
+
+It uses [lizard](https://github.com/terryyin/lizard) for cyclomatic-complexity measurement and [Open Code Review](https://github.com/alibaba/open-code-review) (`ocr`) for deterministic file selection and rule resolution.
 
 ## What it does
 
 - Measures cyclomatic complexity across many languages with `lizard`.
 - Uses `ocr` in delegation mode to find the right review rule for each file.
-- Ranks the worst hot spots into a one-page manifest.
-- Loads only the relevant function or diff hunk, not the whole repo.
-- Verifies every cleanup by re-running the measurement.
+- Ranks the worst hot spots into a manifest.
+- Writes the manifest and a human-readable analysis to `/tmp/repo-cleanup-crew/<repo-name>/`.
+- Presents the analysis and waits for the user to select which items to clean.
+- If approved, loads only the relevant function, proposes a minimal change, and verifies it.
 
-## Install with an agent skill
+## Install the skill
 
-```bash
-npx skills add mallochio/repo-cleanup-crew --skill repo-cleanup-crew
-```
-
-Then ask your coding agent to run `repo-cleanup-crew` in the current repository. The skill copies the bundled cleanup scripts into `tools/repo-cleanup-crew/`, scouts the repo, and walks the highest-priority cleanups one by one.
-
-## Manual local installation
-
-Copy `skills/repo-cleanup-crew/` into your repository, for example at `tools/repo-cleanup-crew/`, and run the install script:
+Install globally so no files are written into the target repository:
 
 ```bash
-cp -r skills/repo-cleanup-crew tools/repo-cleanup-crew
-node tools/repo-cleanup-crew/scripts/install.mjs
+npx skills add mallochio/repo-cleanup-crew -g -y
 ```
 
-Then run the scout:
+If your agent requires a local skill directory, you can omit `-g`; the skill will live in `.agents/skills/repo-cleanup-crew/`.
+
+## Use the skill
+
+From inside the target repository, run the scout. All output goes to `/tmp`:
 
 ```bash
-bash tools/repo-cleanup-crew/scripts/scout.sh
+bash <path-to-skill>/scripts/scout.sh
 ```
 
-This produces `tools/repo-cleanup-crew/output/manifest.json`. The agent should then process the manifest one item at a time.
+or for a different repo:
+
+```bash
+bash <path-to-skill>/scripts/scout.sh /path/to/other-repo
+```
+
+The scout prints a markdown analysis. The agent then asks which ranks to clean. Edits only happen after you select items.
 
 ## Tooling
 
-The skill tries the following runners, in order, to avoid forcing a global install:
+The scout tries the following runners, in order, to avoid forcing a global install:
 
 1. `lizard` if it is already on `PATH`.
 2. `uvx lizard` if `uvx` is installed.
@@ -54,24 +58,23 @@ The skill tries the following runners, in order, to avoid forcing a global insta
 - Files pushing past healthy size limits.
 - `ocr` review rules matched to each file's language and path.
 
-## Example manifest item
+## Example analysis output
 
-```json
-{
-  "rank": 1,
-  "file": "src/utils.py",
-  "max_ccn": 26,
-  "rule_group": "system / **/*.{py,ipynb}",
-  "target": "src/utils.py :: calculate_price",
-  "action": "Reduce cyclomatic complexity in `calculate_price` (CCN=26).",
-  "verification": "Re-run lizard on src/utils.py and confirm max CCN decreases."
-}
 ```
+# repo-cleanup-crew analysis
 
-## Credits
+Found 3 item(s) worth cleaning.
 
-- [lizard](https://github.com/terryyin/lizard) by Terry Yin — cyclomatic complexity analysis
-- [Open Code Review](https://github.com/alibaba/open-code-review) by Alibaba — file selection and rule resolution
+| Rank | Target | Max CCN | File NLOC | Action |
+|------|--------|---------|-----------|--------|
+| 1 | `src/index.ts :: main` | 28 | 261 | Reduce cyclomatic complexity in `main` (CCN=28). |
+| 2 | `src/providers/slack.bolt.ts :: (anonymous)` | 13 | 176 | Reduce cyclomatic complexity in `(anonymous)` (CCN=13). |
+| 3 | `src/providers/slack.scan.ts :: collectThreadCandidates` | 11 | 106 | Reduce cyclomatic complexity in `collectThreadCandidates` (CCN=11). |
+
+## Next step
+
+Review the items above. If you want the agent to proceed with cleanup, say which ranks to clean (for example: `1, 2`) or `all`.
+```
 
 ## License
 

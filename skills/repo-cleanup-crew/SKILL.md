@@ -1,61 +1,55 @@
 ---
 name: repo-cleanup-crew
-description: Install and run a no-interview, tool-backed repo cleanup pass. Uses OCR delegation for file selection, lizard for cyclomatic complexity, and the host agent's model for minimal-context refactor actions.
+description: Scout a repo for the highest-value cleanups using lizard and ocr, present a neat analysis, and only edit after the user approves which items to clean. All scout output goes to /tmp.
 ---
 
 # repo-cleanup-crew
 
-Run a high-signal repo cleanup without asking the user questions. Infer languages and scope from the repo, produce a ranked manifest, and clean one item at a time while keeping the context window small.
+Analyze a repository for cyclomatic-complexity hot spots and `ocr` review rules, then present a ranked list to the user. Do not make any edits until the user approves specific items.
 
-## Non-negotiable cleanup standards
+## Non-negotiable rules
 
-1. **Delete complexity before rearranging it.** A refactor that leaves the same number of branches is not a cleanup.
-2. **No file crosses 1,000 lines without a written justification.** If a file is over the limit, the default remedy is to split it.
-3. **No function above a healthy cyclomatic complexity.** Thresholds are language-specific and live in `config/thresholds.json`.
-4. **No cleanup without verification.** After an edit, re-run the scout and confirm the metric moved.
-5. **Only load fragments.** Never read a whole file unless the whole file is genuinely necessary.
+1. **All analysis output goes to `/tmp/repo-cleanup-crew/<repo-name>/`.** Never write scout artifacts into the target repository.
+2. **No edits without explicit approval.** After presenting the analysis, stop and wait for the user to select which ranks to clean.
+3. **Only load fragments.** Once approved, read only the relevant function or small block, not the whole file or whole repo.
+4. **Verify every change.** After an edit, re-run `lizard` on the affected file and run the repo's typecheck and relevant tests.
 
 ## Procedure
 
-1. Inspect the repository:
-   - Check `git status` and ensure there are no uncommitted changes you cannot safely commit.
-   - Identify `package.json`, `pyproject.toml`, or other language markers.
+### Phase 1: Scout and present
 
-2. Install the crew:
+1. Run the scout from the skill directory, passing the target repository path:
+
    ```bash
-   node <skill-directory>/scripts/install.mjs
+   bash <skill-directory>/scripts/scout.sh <path-to-repo>
    ```
-   This creates `tools/repo-cleanup-crew/`. Refuse to overwrite without `--force`.
 
-3. Run the scout:
-   ```bash
-   tools/repo-cleanup-crew/scripts/scout.sh
-   ```
-   This runs `lizard` for complexity and, if available, `ocr delegate` for file selection and rules. It writes raw outputs to `tools/repo-cleanup-crew/output/`.
+   If no path is given, it uses the current working directory.
 
-4. Build the manifest:
-   ```bash
-   python3 tools/repo-cleanup-crew/scripts/manifest-pruner.py
-   ```
-   This reads `lizard` output and any `ocr` output, ranks issues, and writes `tools/repo-cleanup-crew/output/manifest.json`.
+2. The script writes to `/tmp/repo-cleanup-crew/<repo-name>/`:
+   - `lizard.csv` — raw `lizard` output
+   - `manifest.json` — ranked cleanup items
+   - `analysis.md` — human-readable summary
 
-5. Read the manifest. Pick the highest-rank item.
+3. Read `analysis.md` and present the table to the user in a clean, concise form.
+4. Stop. Ask the user which ranks to clean, for example: `1, 3` or `all` or `none`.
 
-6. For each item:
-   - Use `tools/repo-cleanup-crew/scripts/fragment-loader.py` to fetch only the function or diff hunk.
-   - Propose the smallest behavior-preserving refactor that reduces complexity or removes dead code.
-   - Apply the edit.
-   - Re-run the scout for the affected file and confirm the metric moved.
+### Phase 2: Clean with permission
 
-7. Stop and report:
-   - files touched,
-   - metrics before / after,
-   - unresolved items and why.
+For each approved rank, in order:
 
-## Primary cleanup questions
+1. Load the relevant code fragment (the function or block from the `target` field).
+2. Propose the smallest behavior-preserving refactor that reduces the metric.
+3. Show the user the intended change and ask for a one-line confirmation if the change is non-trivial.
+4. Apply the change.
+5. Re-run `lizard` on the affected file and confirm the CCN or NLOC decreased.
+6. Run the repo's typecheck and the tests most relevant to the changed file.
+7. Report the before/after numbers.
 
-- Can we delete a whole branch or concept instead of simplifying it?
-- Did this edit reduce cyclomatic complexity or just move it?
-- Is this logic in the file that actually owns the concept?
-- Did we reuse existing helpers, or invent a new one?
-- Does the change make the next reader need to hold fewer things in their head?
+### Phase 3: Final report
+
+After all approved items are handled:
+
+- Summarize which files were changed and the metric changes.
+- List any items the user declined.
+- Note any tests that still fail and whether they are pre-existing.
