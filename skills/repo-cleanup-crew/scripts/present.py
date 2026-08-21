@@ -16,27 +16,27 @@ def main():
     lines = [
         "# repo-cleanup-crew analysis",
         "",
-        f"Found {len(manifest)} item(s) worth cleaning.",
+        f"Found {len(manifest)} file(s) worth cleaning.",
         "",
-        "| Rank | Target | Max CCN | File NLOC | Action |",
-        "|------|--------|---------|-----------|--------|",
+        "| Rank | File | Max CCN | anti-slop | ruff | Action |",
+        "|------|------|---------|-----------|------|--------|",
     ]
 
     for item in manifest:
         lines.append(
-            f"| {item['rank']} | `{item['target']}` | {item['max_ccn']} | {item['total_nloc']} | {item['action']} |"
+            f"| {item['rank']} | `{item['file']}` | {item['max_ccn']} | {item['oxlint']} | {item['ruff']} | {item['action']} |"
         )
 
     lines.extend([
         "",
         "## Verification method",
         "",
-        "For each cleaned item, re-run `lizard` on the affected file and confirm the CCN or NLOC metric moved in the right direction.",
+        "For each cleaned file, re-run the scout and confirm CCN, anti-slop, and ruff counts decrease.",
         "",
         "## Next step",
         "",
-        "Review the items above. If you want the agent to proceed with cleanup, say which ranks to clean (for example: `1, 2`) or `all`. "
-        "The agent will load only the relevant function, propose a minimal behavior-preserving change, and verify it.",
+        "Review the files above. If you want the agent to proceed with cleanup, say which ranks to clean (for example: `1, 2`) or `all`. "
+        "The agent will load only the relevant function or block, propose a minimal behavior-preserving change, and verify it.",
     ])
 
     text = "\n".join(lines)

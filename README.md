@@ -4,13 +4,20 @@
 
 An agent skill that finds the highest-value cleanups in a repo and presents them to the user. It only edits files after the user approves which items to clean. All analysis output goes to `/tmp/repo-cleanup-crew/`, so nothing is written into the target repository.
 
-It uses [lizard](https://github.com/terryyin/lizard) for cyclomatic-complexity measurement and [Open Code Review](https://github.com/alibaba/open-code-review) (`ocr`) for deterministic file selection and rule resolution.
+It uses:
+
+- [lizard](https://github.com/terryyin/lizard) for cyclomatic-complexity measurement.
+- [anti-slop](https://github.com/dmmulroy/anti-slop) `oxlint` plugin for TypeScript/JavaScript slop patterns.
+- [ruff](https://github.com/astral-sh/ruff) for Python style and quality.
+- [Open Code Review](https://github.com/alibaba/open-code-review) (`ocr`) for deterministic file selection and rule resolution.
 
 ## What it does
 
 - Measures cyclomatic complexity across many languages with `lizard`.
+- Runs `oxlint` with the `anti-slop` plugin for TypeScript/JavaScript slop patterns.
+- Runs `ruff` with the bundled `rules/ruff.toml` for Python style and quality.
 - Uses `ocr` in delegation mode to find the right review rule for each file.
-- Ranks the worst hot spots into a manifest.
+- Merges all findings into one ranked manifest.
 - Writes the manifest and a human-readable analysis to `/tmp/repo-cleanup-crew/<repo-name>/`.
 - Presents the analysis and waits for the user to select which items to clean.
 - If approved, loads only the relevant function, proposes a minimal change, and verifies it.
@@ -65,11 +72,11 @@ The scout tries the following runners, in order, to avoid forcing a global insta
 
 Found 3 item(s) worth cleaning.
 
-| Rank | Target | Max CCN | File NLOC | Action |
-|------|--------|---------|-----------|--------|
-| 1 | `src/index.ts :: main` | 28 | 261 | Reduce cyclomatic complexity in `main` (CCN=28). |
-| 2 | `src/providers/slack.bolt.ts :: (anonymous)` | 13 | 176 | Reduce cyclomatic complexity in `(anonymous)` (CCN=13). |
-| 3 | `src/providers/slack.scan.ts :: collectThreadCandidates` | 11 | 106 | Reduce cyclomatic complexity in `collectThreadCandidates` (CCN=11). |
+| Rank | File | Max CCN | anti-slop | ruff | Action |
+|------|------|---------|-----------|------|--------|
+| 1 | `src/index.ts` | 28 | 12 | 0 | max CCN 28; 12 anti-slop issues |
+| 2 | `src/providers/slack.bolt.ts` | 13 | 4 | 0 | max CCN 13; 4 anti-slop issues |
+| 3 | `src/services/llm.service.ts` | 8 | 9 | 0 | 9 anti-slop issues |
 
 ## Next step
 

@@ -10,27 +10,15 @@ from collections import defaultdict
 from pathlib import Path
 
 
-def norm(p):
-    """Strip leading './' from paths so lizard and ocr paths match."""
-    return p.removeprefix("./")
+COLUMNS = ["nloc", "ccn", "token", "param", "length", "location", "file", "name", "signature", "start", "end"]
+TOP_N = int(os.environ.get("RCC_TOP_N", "24"))
+CCN_THRESHOLD = int(os.environ.get("RCC_CCN_THRESHOLD", "10"))
 
 
-COLUMNS = [
-    "nloc",
-    "ccn",
-    "token",
-    "param",
-    "length",
-    "location",
-    "file",
-    "name",
-    "signature",
-    "start",
-    "end",
-]
-
-THRESHOLD_CCN = int(os.environ.get("RCC_CCN_THRESHOLD", "10"))
-TOP_N = int(os.environ.get("RCC_TOP_N", "12"))
+def norm(p, repo):
+    p = p.removeprefix("./")
+    p = p.removeprefix(repo + "/")
+    return p
 
 
 def parse_lizard(csv_path):
@@ -46,60 +34,34 @@ def parse_lizard(csv_path):
     return rows
 
 
-def build_file_map(rows):
-    files = defaultdict(list)
-    for r in rows:
-        files[norm(r["file"])].append(r)
-    return files
+def parse_oxlint(oxlint_path):
+    if not os.path.exists(oxlint_path) or os.path.getsize(oxlint_path) == 0:
+        return []
+    try:
+        with open(oxlint_path) as f:
+            data = json.load(f)
+        return data.get("diagnostics", [])
+    except Exception:
+        return []
 
 
-def summarize_files(file_map):
-    summaries = []
-    for file, funcs in file_map.items():
-        max_ccn = max(int(r["ccn"]) for r in funcs)
-        total_nloc = sum(int(r["nloc"]) for r in funcs)
-        high_ccn_funcs = sorted(
-            [r for r in funcs if int(r["ccn"]) >= THRESHOLD_CCN],
-            key=lambda r: -int(r["ccn"]),
-        )[:3]
-
-        # Collapse near-identical functions into one item
-        by_ccn = defaultdict(list)
-        for r in funcs:
-            by_ccn[int(r["ccn"])].append(r)
-
-        clusters = [
-            {"ccn": ccn, "count": len(rs), "names": [r["name"] for r in rs[:3]]}
-            for ccn, rs in sorted(by_ccn.items(), reverse=True)
-            if len(rs) > 2 and ccn >= THRESHOLD_CCN
-        ]
-
-        summaries.append(
-            {
-                "file": file,
-                "total_nloc": total_nloc,
-                "function_count": len(funcs),
-                "max_ccn": max_ccn,
-                "high_ccn_count": len(high_ccn_funcs),
-                "high_ccn_funcs": high_ccn_funcs,
-                "clusters": clusters,
-            }
-        )
-    return summaries
+def parse_ruff(ruff_path):
+    if not os.path.exists(ruff_path) or os.path.getsize(ruff_path) == 0:
+        return []
+    try:
+        with open(ruff_path) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
 
 
-def get_rule_groups(ocr_cmd, files):
-    """Run `ocr delegate rule <files...>` and parse group names."""
+def get_rule_groups(ocr_cmd, files, repo):
     if not files:
         return {}
     cmd = ocr_cmd.split() + ["delegate", "rule"] + files
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             print(result.stderr, file=sys.stderr)
             return {}
@@ -132,7 +94,7 @@ def get_rule_groups(ocr_cmd, files):
             applies_match = re.match(r"-\s+(.+)", line)
             if applies_match:
                 path = applies_match.group(1).strip().strip("`")
-                current_files.append(norm(path))
+                current_files.append(norm(path, repo))
             else:
                 if current_group and current_files:
                     for f in current_files:
@@ -147,38 +109,62 @@ def get_rule_groups(ocr_cmd, files):
     return mapping
 
 
-def build_manifest(summaries, rule_groups):
-    ranked = sorted(summaries, key=lambda s: (-s["max_ccn"], -s["total_nloc"]))
+def build_file_summary(lizard_rows, oxlint_diags, ruff_diags, repo):
+    by_file = defaultdict(lambda: {"max_ccn": 0, "total_nloc": 0, "function_count": 0, "oxlint": 0, "ruff": 0})
+
+    for r in lizard_rows:
+        f = norm(r["file"], repo)
+        ccn = int(r["ccn"])
+        nloc = int(r["nloc"])
+        by_file[f]["max_ccn"] = max(by_file[f]["max_ccn"], ccn)
+        by_file[f]["total_nloc"] += nloc
+        by_file[f]["function_count"] += 1
+
+    for d in oxlint_diags:
+        f = norm(d.get("filename", "unknown"), repo)
+        by_file[f]["oxlint"] += 1
+
+    for d in ruff_diags:
+        f = norm(d.get("filename", "unknown"), repo)
+        by_file[f]["ruff"] += 1
+
+    return by_file
+
+
+def score_file(s):
+    return s["max_ccn"] + s["oxlint"] + (s["ruff"] * 0.5)
+
+
+def build_manifest(by_file, rule_groups):
+    files = sorted(by_file.items(), key=lambda kv: (-score_file(kv[1]), -kv[1]["max_ccn"], -kv[1]["oxlint"]))
     manifest = []
 
-    for s in ranked[:TOP_N]:
-        if s["clusters"]:
-            cluster = s["clusters"][0]
-            action = (
-                f"{cluster['count']} functions in this file have CCN={cluster['ccn']}. "
-                f"Collapse, delete, or abstract the repeated pattern."
-            )
-            target = f"{s['file']} ({', '.join(cluster['names'])}, ... +{cluster['count'] - len(cluster['names'])} more)"
-        elif s["high_ccn_funcs"]:
-            top = s["high_ccn_funcs"][0]
-            action = f"Reduce cyclomatic complexity in `{top['name']}` (CCN={top['ccn']})."
-            target = f"{s['file']} :: {top['name']}"
-        else:
+    for f, s in files[:TOP_N]:
+        if s["max_ccn"] < CCN_THRESHOLD and s["oxlint"] == 0 and s["ruff"] == 0:
             continue
 
-        if s["total_nloc"] > 1000:
-            action = f"File is {s['total_nloc']} NLOC. Split or delete before any micro-cleanup. " + action
+        parts = []
+        if s["max_ccn"] >= CCN_THRESHOLD:
+            parts.append(f"max CCN {s['max_ccn']}")
+        if s["oxlint"] > 0:
+            parts.append(f"{s['oxlint']} anti-slop issues")
+        if s["ruff"] > 0:
+            parts.append(f"{s['ruff']} ruff issues")
+
+        action = "; ".join(parts) if parts else "clean"
 
         item = {
             "rank": len(manifest) + 1,
-            "file": s["file"],
+            "file": f,
             "total_nloc": s["total_nloc"],
             "function_count": s["function_count"],
             "max_ccn": s["max_ccn"],
-            "rule_group": rule_groups.get(s["file"]),
-            "target": target,
+            "oxlint": s["oxlint"],
+            "ruff": s["ruff"],
+            "rule_group": rule_groups.get(f),
+            "target": f,
             "action": action,
-            "verification": f"Re-run lizard on {s['file']} and confirm max CCN decreases.",
+            "verification": f"Re-run the scout on {f} and confirm the numbers go down."
         }
         manifest.append(item)
 
@@ -188,20 +174,27 @@ def build_manifest(summaries, rule_groups):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lizard", required=True)
+    parser.add_argument("--oxlint", default="")
+    parser.add_argument("--ruff", default="")
     parser.add_argument("--output", required=True)
     parser.add_argument("--ocr-cmd", default="")
+    parser.add_argument("--repo", default="")
     args = parser.parse_args()
 
+    repo = os.path.abspath(args.repo) if args.repo else ""
+
     rows = parse_lizard(args.lizard)
-    file_map = build_file_map(rows)
-    summaries = summarize_files(file_map)
+    oxlint = parse_oxlint(args.oxlint) if args.oxlint else []
+    ruff = parse_ruff(args.ruff) if args.ruff else []
+
+    by_file = build_file_summary(rows, oxlint, ruff, repo)
 
     rule_groups = {}
     if args.ocr_cmd:
-        top_files = [s["file"] for s in sorted(summaries, key=lambda s: (-s["max_ccn"], -s["total_nloc"]))[:8]]
-        rule_groups = get_rule_groups(args.ocr_cmd, top_files)
+        top_files = sorted(by_file.items(), key=lambda kv: -score_file(kv[1]))[:8]
+        rule_groups = get_rule_groups(args.ocr_cmd, [f for f, _ in top_files], repo)
 
-    manifest = build_manifest(summaries, rule_groups)
+    manifest = build_manifest(by_file, rule_groups)
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
