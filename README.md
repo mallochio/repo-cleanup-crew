@@ -15,7 +15,7 @@ It uses:
 
 - Measures cyclomatic complexity across many languages with `lizard`.
 - Runs `oxlint` with the `anti-slop` plugin for TypeScript/JavaScript slop patterns.
-- Runs `ruff` with the bundled `rules/ruff.toml` for Python style and quality.
+- Runs `ruff` with the bundled `rules/ruff.toml` for Python style and quality (Interhuman house standard from open-omni-modeling: line length 120, C901 max 12). Cleanup also follows `rules/thermo-nuclear.md` (≈300-line modules, complexipy≤20, typing, Google docstrings).
 - Uses `ocr` in delegation mode to find the right review rule for each file.
 - Merges all findings into one ranked manifest.
 - Writes the manifest and a human-readable analysis to `/tmp/repo-cleanup-crew/<repo-name>/`.
