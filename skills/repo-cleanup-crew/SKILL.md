@@ -13,13 +13,13 @@ Analyze a repository for cyclomatic-complexity hot spots, anti-slop (`oxlint`) i
 2. **No edits without explicit approval.** After presenting the analysis, stop and wait for the user to select which ranks to clean.
 3. **Only load fragments.** Once approved, read only the relevant function or small block, not the whole file or whole repo.
 4. **Verify every change.** After an edit, re-run the scout on the affected file and run the repo's typecheck and relevant tests.
-5. **Apply thermo-nuclear standards.** Load `<skill-directory>/rules/thermo-nuclear.md` before reviewing a file.
+5. **Apply thermo-nuclear standards.** Load `<skill-directory>/rules/thermo-nuclear.md` before reviewing a file. For Python, that includes Interhuman house standards from open-omni-modeling: ~300-line modules, C901≤12, complexipy≤20 (extract helpers first), typing, and Google-style docstrings. Scout enforces style via `rules/ruff.toml`; complexipy is documented for cleanup, not required as a scout dependency.
 
 ## Tools the scout runs
 
 - `lizard` — cyclomatic complexity, NLOC, and token counts.
 - `oxlint` with the `anti-slop` plugin — TypeScript/JavaScript slop patterns.
-- `ruff` with the skill's `rules/ruff.toml` — Python style and quality.
+- `ruff` with the skill's `rules/ruff.toml` — Python style and quality (line length 120, McCabe/C901 max 12, aligned with Interhuman OOM).
 - `ocr` in delegation mode — file selection and rule grouping.
 
 All tools run from the skill directory. Their outputs are merged into one manifest.

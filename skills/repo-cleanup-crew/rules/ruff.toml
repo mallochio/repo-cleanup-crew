@@ -1,3 +1,20 @@
+# Interhuman Python house standard (aligned with InterhumanAI/open-omni-modeling).
+# Standalone ruff.toml: top-level keys mirror [tool.ruff]; lint keys live under [lint].
+
+line-length = 120
+target-version = "py313"
+
+exclude = [
+  ".agents",
+  ".cache",
+  "coverage",
+  "dist",
+  "node_modules",
+  "tools/repo-cleanup-crew",
+  "tools/oxlint",
+]
+
+[lint]
 select = [
   "E",
   "W",
@@ -10,25 +27,15 @@ select = [
   "SIM",
   "TID",
   "RUF",
-  "C90",
+  "C901",
   "D",
   "ERA",
 ]
 
 ignore = ["D100", "D103", "D104", "D203", "D212"]
 
-line-length = 100
+[lint.mccabe]
+max-complexity = 12
 
-exclude = [
-  ".agents",
-  ".cache",
-  "coverage",
-  "dist",
-  "node_modules",
-  "tools/repo-cleanup-crew",
-  "tools/oxlint",
-]
-
-per-file-ignores = {
-  "tests/**" = ["D"]
-}
+[lint.per-file-ignores]
+"tests/**" = ["D"]
